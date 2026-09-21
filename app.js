@@ -40,6 +40,7 @@ async function detail(id){
  if(l.undated_import)box.append(el('p','Импорт: история сохранена, недатированные события не участвуют в периодах. Суммы с пометкой требуют проверки.','muted'));
  if(me.role!=='producer'){
   const actions=el('div',null,'toolbar');
+  if(me.role==='manager')for(const key of ['potential_amount','offer_amount'])if(l.unverified_amounts?.includes(key))actions.append(button('Проверить: '+names[key],()=>modal('Подтверждение суммы — укажите основание',[key,'comment'],{[key]:l[key]},f=>act({kind:'verify_amount',field:key,amount:f[key],comment:f.comment}))));
   actions.append(button('Редактировать',()=>modal('Данные клиента',['name','telegram','source','industry','capital','request','comment'],l,f=>act({kind:'edit',fields:f}),false)));
   if(me.role!=='lead_collector'){
    actions.append(button('Взять в работу',async()=>{await act({kind:'take'});await refresh();}));
