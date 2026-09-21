@@ -1,5 +1,5 @@
-// PUBLIC configuration only. Never put a bot token, initData or client records here.
+// Public endpoints only. Credentials and client data stay on the server.
 window.AGENT_MANY_CONFIG = {
-  API_BASE: '', // Example: https://your-isolated-api-tunnel.example
-  BOT_URL: '' // Example: https://t.me/your_bot?start=crm
+  API_BASE: 'https://indicated-misc-broadband-facial.trycloudflare.com',
+  BOT_URL: 'https://t.me/ageent_many_bot?start=crm'
 };

@@ -5,8 +5,8 @@ const API_BASE=(cfg.API_BASE||'').replace(/\/$/,'');
 const tg=window.Telegram?.WebApp;
 const initData=tg?.initData||'';
 let me,leads=[],selected=null,alerts={},onlyAttention=false;
-const names={name:'Имя',telegram:'Telegram',source:'Источник',industry:'Отрасль',capital:'Капитал',request:'Запрос',comment:'Комментарий',potential_amount:'Потенциальная сумма, ₽',offer_amount:'Сумма оффера, ₽',paid_amount:'Фактическая оплата, ₽',probability:'Вероятность, %',next_action:'Следующее действие',next_at:'Дата действия (Москва)',expected_payment_at:'Ожидаемая оплата (Москва)',postponed_reason:'Причина переноса',not_target_reason:'Причина «Не ЦА»',category_mismatch:'Несоответствие категории',refusal_reason:'Причина отказа',alternative_product:'Альтернативный продукт / нет',payment_method:'Способ оплаты',result:'Что сделано'};
-const requirements={'Потенциал':['potential_amount','probability','next_action','next_at','industry','capital','request'],'Оффер':['offer_amount','next_action','expected_payment_at'],'Думает':['next_action','next_at'],'Повторный контакт':['next_action','next_at'],'Отложено':['postponed_reason','next_at','next_action'],'Не ЦА':['not_target_reason','category_mismatch'],'Отказ':['refusal_reason','comment','alternative_product'],'Оплатил':['paid_amount','payment_method'],'Назначен созвон':['next_action','next_at']};
+const names={name:'Имя',telegram:'Telegram',source:'Источник',industry:'Отрасль',capital:'Капитал',request:'Запрос',comment:'Комментарий',potential_amount:'Потенциальная сумма, ₽',offer_amount:'Сумма оффера, ₽',paid_amount:'Фактическая оплата, ₽',probability:'Вероятность, %',next_action:'Следующее действие',next_at:'Дата действия (Москва)',expected_payment_at:'Ожидаемая оплата (Москва)',postponed_reason:'Причина переноса',not_target_reason:'Причина «Не ЦА»',client_category:'Категория клиента',category_mismatch:'Несоответствие категории',refusal_reason:'Причина отказа',alternative_product:'Альтернативный продукт / нет',payment_method:'Способ оплаты',result:'Что сделано'};
+const requirements={'Потенциал':['potential_amount','probability','next_action','next_at','industry','capital','request'],'Оффер':['offer_amount','next_action','expected_payment_at'],'Думает':['next_action','next_at'],'Повторный контакт':['next_action','next_at'],'Отложено':['postponed_reason','next_at','next_action'],'Не ЦА':['not_target_reason','client_category','category_mismatch'],'Отказ':['refusal_reason','comment','alternative_product'],'Оплатил':['paid_amount','payment_method'],'Назначен созвон':['next_action','next_at']};
 const reasons={offer_followup:'Оффер: нужен контакт сегодня',repeat_due:'Пора повторно связаться',overdue:'Просроченная задача',unqualified_call:'Квалифицируйте созвон',paid_handoff:'Передайте руководителю'};
 function el(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
 function button(text,fn,cls='btn'){const b=el('button',text,cls);b.type='button';b.onclick=()=>Promise.resolve(fn()).catch(showError);return b;}
@@ -29,24 +29,52 @@ function fields(keys,initial={},required=true){$('fields').replaceChildren();for
  if(key.endsWith('_at')){input.type='datetime-local';if(initial[key]){const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(initial[key]));input.value=parts.replace(' ','T');}}
  else if(key.endsWith('_amount')||key==='probability'){input.type='number';input.min=key==='paid_amount'?'0.01':'0';input.step='0.01';if(key==='probability')input.max='100';input.value=initial[key]??'';}
  else input.value=initial[key]??'';label.append(input);$('fields').append(label);}}
-function readFields(){const out={};for(const input of $('fields').querySelectorAll('input')){if(input.value==='')continue;out[input.name]=input.type==='number'?Number(input.value):input.type==='datetime-local'?input.value+':00+03:00':input.value;}return out;}
+function readFields(){const out={};for(const input of $('fields').querySelectorAll('input, select')){if(input.value==='')continue;out[input.name]=input.type==='number'?Number(input.value):input.type==='datetime-local'?input.value+':00+03:00':input.value;}return out;}
 function modal(title,keys,initial,save,required=true){$('form-title').textContent=title;fields(keys,initial,required);$('form-error').textContent='';$('form').onsubmit=async e=>{e.preventDefault();const submit=$('form').querySelector('[type=submit]');submit.disabled=true;try{await save(readFields());$('modal').close();await refresh();}catch(err){$('form-error').textContent=err.message;}finally{submit.disabled=false;}};$('modal').showModal();}
 async function act(body){return api(`/api/leads/${encodeURIComponent(selected.id)}/actions`,{version:selected.version,...body});}
+function doneModal(l){
+ const status=el('select');status.name='status';status.setAttribute('aria-label','Новый статус');
+ for(const s of ['',...me.statuses.filter(s=>s!==l.status)]){const o=el('option',s||'Без изменения статуса');o.value=s;status.append(o);}
+ const label=el('label','Новый статус (необязательно)');label.append(status);
+ modal('Результат задачи',['result','next_action','next_at'],{},f=>{const {result,status,...rest}=f;return act({kind:'done',task_id:l.task_id,result,...(status?{status}:{}),fields:rest});},false);
+ const draw=()=>{const previous=readFields();const required=requirements[status.value]||[];
+  fields([...new Set(['result',...required,'next_action','next_at'])],{...previous,paid_amount:status.value==='Оплатил'?previous.paid_amount:undefined,payment_method:status.value==='Оплатил'?previous.payment_method:undefined},false);
+  for(const input of $('fields').querySelectorAll('input'))if(required.includes(input.name))input.required=true;
+  $('fields').prepend(label);
+ };
+ status.onchange=draw;$('fields').prepend(label);
+}
+function qualificationModal(){
+ const status=el('select');status.name='status';status.required=true;status.setAttribute('aria-label','Результат созвона');
+ for(const s of ['',...me.statuses.filter(s=>s!==selected.status)]){const o=el('option',s||'Выберите результат');o.value=s;status.append(o);}
+ const label=el('label','Результат созвона');label.append(status);
+ modal('Квалификация созвона',[],{},f=>{const {status,...rest}=f;return act({kind:'result',status,fields:rest});});
+ status.onchange=()=>{fields(requirements[status.value]||[],{},true);$('fields').prepend(label);};
+ $('fields').append(label);
+}
+function contactModal(){
+ modal('Подтвердите фактический контакт',[],{},f=>act({kind:'contact',contact_type:f.contact_type}));
+ const label=el('label','Тип состоявшегося контакта');const select=el('select');select.name='contact_type';select.required=true;
+ for(const [v,t] of [['','Выберите тип'],['message','Сообщение'],['call','Звонок'],['meeting','Встреча']]){const o=el('option',t);o.value=v;select.append(o);}
+ label.append(select);$('fields').append(label);
+}
 async function detail(id){
  selected=await api('/api/leads/'+encodeURIComponent(id));const l=selected;renderList();const box=$('detail');box.replaceChildren(el('span',l.status,'eyebrow'),el('h2',l.name));
  if(alerts[id])box.append(el('p',alerts[id].map(x=>reasons[x]).join(' · '),'warning'));
- const data=el('dl');for(const [title,v] of [['Telegram',l.telegram],['Ответственный',l.responsible],['Отрасль',l.industry],['Капитал',l.capital],['Запрос',l.request],['Касания',l.touch_count],['Следующий шаг',l.next_action],['Срок',date(l.next_at)],['Комментарий',l.comment]])data.append(el('dt',title),el('dd',value(v)));box.append(data);
+ const data=el('dl');for(const [title,v] of [['Telegram',l.telegram],['Ответственный',l.responsible],['Отрасль',l.industry],['Капитал',l.capital],['Запрос',l.request],['Касания',l.touch_count],['Следующий шаг',l.next_action],['Срок',date(l.next_at)],['Комментарий',l.comment],['Категория клиента',l.client_category],['Причина «Не ЦА»',l.not_target_reason],['Несоответствие категории',l.category_mismatch]])data.append(el('dt',title),el('dd',value(v)));box.append(data);
  for(const key of ['potential_amount','offer_amount','paid_amount'])if(l[key]!=null)box.append(el('p',`${names[key]}: ${l[key]}${l.unverified_amounts?.includes(key)?' — НЕ ПОДТВЕРЖДЕНО':''}`));
  if(l.undated_import)box.append(el('p','Импорт: история сохранена, недатированные события не участвуют в периодах. Суммы с пометкой требуют проверки.','muted'));
- if(me.role!=='producer'){
+ if(me.role!=='producer'&&!(me.role==='lead_collector'&&l.handed_off)){
   const actions=el('div',null,'toolbar');
   if(me.role==='manager')for(const key of ['potential_amount','offer_amount'])if(l.unverified_amounts?.includes(key))actions.append(button('Проверить: '+names[key],()=>modal('Подтверждение суммы — укажите основание',[key,'comment'],{[key]:l[key]},f=>act({kind:'verify_amount',field:key,amount:f[key],comment:f.comment}))));
-  actions.append(button('Редактировать',()=>modal('Данные клиента',['name','telegram','source','industry','capital','request','comment'],l,f=>act({kind:'edit',fields:f}),false)));
+  actions.append(button('Редактировать',()=>modal('Данные клиента',me.role==='lead_collector'?['name','telegram','source','comment']:['name','telegram','source','industry','capital','request','comment'],l,f=>act({kind:'edit',fields:f}),false)));
   if(me.role!=='lead_collector'){
    actions.append(button('Взять в работу',async()=>{await act({kind:'take'});await refresh();}));
-   const status=el('select');status.setAttribute('aria-label','Результат');me.statuses.forEach(s=>{const o=el('option',s);o.value=s;status.append(o);});status.value=l.status;actions.append(status,button('Зафиксировать результат',()=>modal(status.value,requirements[status.value]||[],l,f=>act({kind:'result',status:status.value,fields:f})), 'btn primary'));
+   const status=el('select');status.setAttribute('aria-label','Результат');me.statuses.forEach(s=>{const o=el('option',s);o.value=s;status.append(o);});status.value=l.status;actions.append(status,button('Зафиксировать результат',()=>modal(status.value,requirements[status.value]||[],status.value==='Оплатил'?{}:l,f=>act({kind:'result',status:status.value,fields:f})), 'btn primary'));
    for(const [type,label] of [['message','Сообщение'],['call','Звонок'],['meeting','Встреча']])actions.append(button('+ '+label,async()=>{await act({kind:'contact',contact_type:type});await refresh();}));
-   if(l.task_id)actions.append(button('Сделано',()=>modal('Результат задачи',['result','next_action','next_at'],{},f=>{const {result,...rest}=f;return act({kind:'done',task_id:l.task_id,result,fields:rest});},false)));
+   if(l.task_id)actions.append(button('Сделано',()=>doneModal(l)));
+   if(alerts[id]?.includes('offer_followup'))actions.append(button('Связаться по офферу',contactModal));
+   if(alerts[id]?.includes('unqualified_call'))actions.append(button('Квалифицировать созвон',qualificationModal));
   }
   if(me.role==='manager'||me.role==='lead_collector'||(l.status==='Оплатил'&&!l.transferred_at)){
    const assign=el('select');assign.setAttribute('aria-label','Ответственный');const handoff=l.status==='Оплатил'&&!l.transferred_at;
@@ -60,7 +88,7 @@ async function detail(id){
 const conversionNames={lead_to_work:'Новый лид → В работе',work_to_scheduled:'В работе → Назначен созвон',completed_to_potential:'Созвон проведён → Потенциал',completed_to_not_target:'Созвон проведён → Не ЦА',completed_to_refusal:'Созвон проведён → Отказ',offer_to_paid:'Оффер → Оплатил',lead_to_call:'Новый лид → Назначен созвон'};
 async function report(){const box=$('report');box.hidden=false;box.replaceChildren(el('h2','Аналитика по событиям'));
  const period=el('select');[['today','Сегодня'],['week','Неделя'],['month','Месяц'],['all','Всё время']].forEach(([v,t])=>{const o=el('option',t);o.value=v;period.append(o);});const seller=el('select');const all=el('option','Все продавцы');all.value='';seller.append(all);me.assignees.forEach(x=>{const o=el('option',String(x.id));o.value=x.id;seller.append(o);});if(me.role==='sales_manager')seller.hidden=true;const output=el('div');box.append(period,seller,output);
- const load=async()=>{const a=await api(`/api/analytics?period=${period.value}${seller.value?'&seller='+seller.value:''}`);output.replaceChildren();for(const [label,val] of [['Активные лиды',a.active_leads],['Оплаты периода, ₽',a.paid_revenue],['Текущий потенциал + офферы, ₽',a.potential_confirmed],['Непроверенные суммы',a.potential_unverified_count],['Импорт с неизвестной датой события',a.unknown_imports]])output.append(el('p',`${label}: ${value(val)}`));for(const [k,v] of Object.entries(a.current))output.append(el('p',`${k==='overdue'?'Просрочено':k}: ${v}`));for(const [k,v] of Object.entries(a.conversions))output.append(el('p',`${conversionNames[k]}: ${v.rate==null?'Неизвестно':(v.rate*100).toFixed(1)+'%'} (${v.numerator}/${v.denominator})`));for(const [k,v] of Object.entries(a.timing_hours))output.append(el('p',`${conversionNames[k]}, средние часы: ${v==null?'Неизвестно':v.toFixed(1)}`));output.append(el('small','Конверсии: история активной когорты за выбранный период; порядок этапов обязателен. Текущий потенциал не ограничивается периодом и не взвешивается вероятностью.'));};period.onchange=()=>load().catch(showError);seller.onchange=()=>load().catch(showError);await load();}
+ const load=async()=>{const a=await api(`/api/analytics?period=${period.value}${seller.value?'&seller='+seller.value:''}`);output.replaceChildren();for(const [label,val] of [['Активные лиды',a.active_leads],['Оплаты периода, ₽',a.paid_revenue],['Оплатившие за период',a.paid_count],['Текущий потенциал + офферы, клиентов',a.potential_count],['Сейчас «В работе», клиентов',a.work_count],['Текущий потенциал + офферы, ₽',a.potential_confirmed],['Непроверенные суммы',a.potential_unverified_count],['Импорт с неизвестной датой события',a.unknown_imports]])output.append(el('p',`${label}: ${value(val)}`));for(const [k,v] of Object.entries(a.current))output.append(el('p',`${k==='overdue'?'Просрочено':k}: ${v}`));for(const [k,v] of Object.entries(a.conversions))output.append(el('p',`${conversionNames[k]}: ${v.rate==null?'Неизвестно':(v.rate*100).toFixed(1)+'%'} (${v.numerator}/${v.denominator})`));for(const [k,v] of Object.entries(a.timing_hours))output.append(el('p',`${conversionNames[k]}, средние часы: ${v==null?'Неизвестно':v.toFixed(1)}`));output.append(el('small','Конверсии: история активной когорты за выбранный период; порядок этапов обязателен. Оплатившие — подтверждённые платежи периода по автору события. Текущие потенциал и «В работе» — по ответственному, без ограничения периодом; потенциал не взвешивается вероятностью.'));};period.onchange=()=>load().catch(showError);seller.onchange=()=>load().catch(showError);await load();}
 async function boot(){
  if(/^https:\/\/t\.me\/[A-Za-z0-9_]+/.test(cfg.BOT_URL||'')){$('telegram-link').href=cfg.BOT_URL;$('telegram-link').hidden=false;$('setup').textContent='Доступ выдаёт руководитель команды.';}
  if(!initData)return;
@@ -69,6 +97,6 @@ async function boot(){
  me.statuses.forEach(s=>{const o=el('option',s);o.value=s;$('filter').append(o);});await refresh();const deep=new URLSearchParams(location.search).get('lead');if(deep)await detail(deep);
 }
 $('cancel').onclick=()=>$('modal').close();$('search').oninput=renderList;$('filter').onchange=renderList;
-$('add').onclick=()=>modal('Новый лид',['name','telegram','source'],{},f=>api('/api/leads',f),false);
+$('add').onclick=()=>modal('Новый лид',['name','telegram','source','comment'],{},f=>api('/api/leads',f),false);
 $('all').onclick=()=>{onlyAttention=false;renderList();};$('attention').onclick=()=>{onlyAttention=true;renderList();};$('reload').onclick=()=>refresh().catch(showError);$('analytics').onclick=()=>report().catch(showError);
 boot().catch(showError);
