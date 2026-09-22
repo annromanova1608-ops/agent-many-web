@@ -105,9 +105,32 @@ async function detail(id){
  if(l.import_raw){const raw=el('details');raw.append(el('summary','Оригинал импорта и исходная история'),el('pre',JSON.stringify(l.import_raw,null,2)));box.append(raw);}
 }
 const conversionNames={lead_to_work:'Новый лид → В работе',work_to_scheduled:'В работе → Назначен созвон',completed_to_potential:'Созвон проведён → Потенциал',completed_to_not_target:'Созвон проведён → Не ЦА',completed_to_refusal:'Созвон проведён → Отказ',offer_to_paid:'Оффер → Оплатил',lead_to_call:'Новый лид → Назначен созвон'};
-async function report(){const box=$('report');box.hidden=false;box.replaceChildren(el('h2','Аналитика по событиям'));
- const period=el('select');[['today','Сегодня'],['week','Неделя'],['month','Месяц'],['all','Всё время']].forEach(([v,t])=>{const o=el('option',t);o.value=v;period.append(o);});const seller=el('select');const all=el('option','Все продавцы');all.value='';seller.append(all);me.assignees.forEach(x=>{const o=el('option',String(x.id));o.value=x.id;seller.append(o);});if(me.role==='sales_manager')seller.hidden=true;const output=el('div');box.append(period,seller,output);
- const load=async()=>{const a=await api(`/api/analytics?period=${period.value}${seller.value?'&seller='+seller.value:''}`);output.replaceChildren();for(const [label,val] of [['Активные лиды',a.active_leads],['Оплаты периода, ₽',a.paid_revenue],['Оплатившие за период',a.paid_count],['Текущий потенциал + офферы, клиентов',a.potential_count],['Сейчас «В работе», клиентов',a.work_count],['Текущий потенциал + офферы, ₽',a.potential_confirmed],['Непроверенные суммы',a.potential_unverified_count],['Импорт с неизвестной датой события',a.unknown_imports]])output.append(el('p',`${label}: ${value(val)}`));for(const [k,v] of Object.entries(a.current))output.append(el('p',`${k==='overdue'?'Просрочено':k}: ${v}`));for(const [k,v] of Object.entries(a.conversions))output.append(el('p',`${conversionNames[k]}: ${v.rate==null?'Неизвестно':(v.rate*100).toFixed(1)+'%'} (${v.numerator}/${v.denominator})`));for(const [k,v] of Object.entries(a.timing_hours))output.append(el('p',`${conversionNames[k]}, средние часы: ${v==null?'Неизвестно':v.toFixed(1)}`));output.append(el('small','Конверсии: история активной когорты за выбранный период; порядок этапов обязателен. Оплатившие — подтверждённые платежи периода по автору события. Текущие потенциал и «В работе» — по ответственному, без ограничения периодом; потенциал не взвешивается вероятностью.'));};reloadReport=load;period.onchange=()=>load().catch(showError);seller.onchange=()=>load().catch(showError);await load();}
+async function report(){
+ const box=$('report');box.hidden=false;box.classList.add('monitor');
+ const header=el('header',null,'monitor-header');const title=el('div');title.append(el('span','АНАЛИТИКА ПО СОБЫТИЯМ','monitor-kicker'),el('h2','Монитор продаж'),el('p','Подтверждённые результаты. Текущая воронка.','monitor-note'));
+ const controls=el('div',null,'monitor-controls');
+ const period=el('select');period.id='report-period';period.setAttribute('aria-label','Период аналитики');
+ [['today','Сегодня'],['week','Неделя'],['month','Месяц'],['all','Всё время']].forEach(([v,t])=>{const o=el('option',t);o.value=v;period.append(o);});
+ const seller=el('select');seller.id='report-seller';seller.setAttribute('aria-label','Ответственный в аналитике');const all=el('option','Все продавцы');all.value='';seller.append(all);
+ me.assignees.forEach(x=>{const o=el('option',String(x.id));o.value=x.id;seller.append(o);});
+ const pl=el('label','Период');pl.append(period);const sl=el('label','Ответственный');sl.append(seller);if(me.role==='sales_manager')sl.hidden=true;
+ controls.append(pl,sl);header.append(title,controls);
+ const state=el('p','Загрузка показателей…','monitor-load-state');state.id='dashboard-state';state.setAttribute('role','status');
+ const output=el('div');output.id='dashboard-output';box.replaceChildren(header,state,output);
+ let generation=0;
+ const load=async()=>{
+  const current=++generation;state.hidden=false;state.textContent='Загрузка показателей…';output.setAttribute('aria-busy','true');output.hidden=true;
+  const sellerId=me.role==='sales_manager'?me.id:(seller.value?Number(seller.value):null);
+  try{
+   const a=await api(`/api/analytics?period=${period.value}${seller.value?'&seller='+encodeURIComponent(seller.value):''}`);
+   if(current!==generation)return;
+   renderDashboard(output,a,leads.filter(l=>sellerId===null||Number(l.responsible)===Number(sellerId)),me.statuses);
+   output.hidden=false;state.hidden=true;
+  }catch(e){if(current===generation){state.textContent='Показатели недоступны. Нажмите «Обновить», чтобы повторить.';output.replaceChildren();}throw e;}
+  finally{if(current===generation)output.setAttribute('aria-busy','false');}
+ };
+ reloadReport=load;period.onchange=()=>load().catch(showError);seller.onchange=()=>load().catch(showError);await load();
+}
 async function boot(){
  if(/^https:\/\/t\.me\/[A-Za-z0-9_]+/.test(cfg.BOT_URL||'')){$('telegram-link').href=cfg.BOT_URL;$('telegram-link').hidden=false;$('setup').textContent='Доступ выдаёт руководитель команды.';}
  if(!initData)return;
