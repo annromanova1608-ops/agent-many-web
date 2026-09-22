@@ -18,7 +18,13 @@ async function api(path,body){
   const data=await r.json();if(!r.ok){if(r.status===401){$('workspace').hidden=true;$('login').hidden=false;}throw Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить запрос');}return data;
 }
 async function refresh(){[leads,alerts]=await Promise.all([api('/api/leads'),api('/api/attention')]);alerts=Object.fromEntries(alerts.map(x=>[x.lead.id,x.reasons]));renderList();if(selected){selected=leads.find(x=>x.id===selected.id)||null;if(selected)await detail(selected.id);else $('detail').replaceChildren(el('p','Карточка передана или недоступна'));}}
+function selectNavigation(id){for(const key of ['all','attention','analytics']){$(key).setAttribute('aria-pressed',String(key===id));$(key).classList.toggle('primary',key===id);}}
+function showList(attentionOnly){
+ onlyAttention=attentionOnly;$('report').hidden=true;$('search').value='';$('filter').value='';
+ selectNavigation(attentionOnly?'attention':'all');renderList();$('list-panel').scrollIntoView({block:'start'});
+}
 function renderList(){
+ $('list-title').textContent=onlyAttention?'Требуют внимания сегодня':'Все карточки';
  const query=$('search').value.toLocaleLowerCase();const status=$('filter').value;
  const items=leads.filter(l=>(!onlyAttention||alerts[l.id])&&(!status||l.status===status)&&[l.name,l.telegram].join(' ').toLocaleLowerCase().includes(query));
  $('count').textContent=`Карточек: ${items.length}`;$('list').replaceChildren();
@@ -98,5 +104,6 @@ async function boot(){
 }
 $('cancel').onclick=()=>$('modal').close();$('search').oninput=renderList;$('filter').onchange=renderList;
 $('add').onclick=()=>modal('Новый лид',['name','telegram','source','comment'],{},f=>api('/api/leads',f),false);
-$('all').onclick=()=>{onlyAttention=false;renderList();};$('attention').onclick=()=>{onlyAttention=true;renderList();};$('reload').onclick=()=>refresh().catch(showError);$('analytics').onclick=()=>report().catch(showError);
+$('all').onclick=()=>showList(false);$('attention').onclick=()=>showList(true);$('reload').onclick=()=>refresh().catch(showError);$('analytics').onclick=()=>{selectNavigation('analytics');report().catch(showError);};
+selectNavigation('all');
 boot().catch(showError);
