@@ -1,4 +1,7 @@
 /* Forest / antique brass. Local CSS texture; no external artwork or fonts. */
+/* Match the single-column CRM breakpoint, including narrow tablets. */
+#detail-back{display:none}
+@media(max-width:900px){#workspace.detail-open #list-panel{display:none}#workspace:not(.detail-open) #detail{display:none}#detail{position:static}#detail-back{display:flex;margin-bottom:14px}}
 :root{--monitor-gold:#c6b47f;--monitor-line:rgba(201,183,126,.24);--monitor-muted:#b0b9a5;--monitor-ivory:#f3f0df}
 body{background:radial-gradient(ellipse at 4% 0,rgba(141,137,72,.18),transparent 50%),radial-gradient(ellipse at 96% 20%,rgba(83,121,72,.11),transparent 52%),#111a16}
 .app{max-width:1440px;padding-top:24px}.topbar{padding:0 4px 18px;border-bottom:1px solid var(--monitor-line);margin-bottom:12px}.brand h1{letter-spacing:.09em;color:var(--monitor-ivory)}.brand small{color:#a9b6a1}.logo{border:1px solid var(--monitor-line);border-radius:12px}.chip{border-color:var(--monitor-line);color:#d9ddca;font-size:13px}

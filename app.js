@@ -5,6 +5,7 @@ const API_BASE=(cfg.API_BASE||'').replace(/\/$/,'');
 const tg=window.Telegram?.WebApp;
 const initData=tg?.initData||'';
 let me,leads=[],selected=null,alerts={},onlyAttention=false,reloadReport=null,refreshTimer=null;
+let listScrollY=0;
 const roleNames={manager:'Руководитель',sales_manager:'Продажник',lead_collector:'Сборщик контактов',producer:'Продюсер'};
 async function visibleRefresh(){
  const b=$('reload');if(b.disabled)return;clearTimeout(refreshTimer);
@@ -30,9 +31,10 @@ async function api(path,body){
   const r=await fetch(API_BASE+path,{method:body?'POST':'GET',headers:{Authorization:'tma '+initData,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,credentials:'omit',cache:'no-store'});
   const data=await r.json();if(!r.ok){if(r.status===401){$('workspace').hidden=true;$('login').hidden=false;}throw Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить запрос');}return data;
 }
-async function refresh(){[leads,alerts]=await Promise.all([api('/api/leads'),api('/api/attention')]);alerts=Object.fromEntries(alerts.map(x=>[x.lead.id,x.reasons]));renderList();if(selected){selected=leads.find(x=>x.id===selected.id)||null;if(selected)await detail(selected.id);else $('detail').replaceChildren(el('p','Карточка передана или недоступна'));}}
+async function refresh(){[leads,alerts]=await Promise.all([api('/api/leads'),api('/api/attention')]);alerts=Object.fromEntries(alerts.map(x=>[x.lead.id,x.reasons]));renderList();if(selected){selected=leads.find(x=>x.id===selected.id)||null;if(selected)await detail(selected.id,false);else{backToList();$('detail').replaceChildren(el('p','Карточка передана или недоступна'));}}}
 function selectNavigation(id){for(const key of ['all','attention','analytics']){$(key).setAttribute('aria-pressed',String(key===id));$(key).classList.toggle('primary',key===id);}}
 function showList(attentionOnly){
+ $('workspace').classList.remove('detail-open');
  onlyAttention=attentionOnly;$('report').hidden=true;$('search').value='';$('filter').value='';
  selectNavigation(attentionOnly?'attention':'all');renderList();$('list-panel').scrollIntoView({block:'start'});
 }
@@ -77,8 +79,14 @@ function contactModal(){
  for(const [v,t] of [['','Выберите тип'],['message','Сообщение'],['call','Звонок'],['meeting','Встреча']]){const o=el('option',t);o.value=v;select.append(o);}
  label.append(select);$('fields').append(label);
 }
-async function detail(id){
- selected=await api('/api/leads/'+encodeURIComponent(id));const l=selected;renderList();const box=$('detail');box.replaceChildren(el('span',l.status,'eyebrow'),el('h2',l.name));
+function backToList(){
+ $('workspace').classList.remove('detail-open');
+ window.scrollTo({top:listScrollY,behavior:'instant'});
+}
+async function detail(id,navigate=true){
+ const [l,events]=await Promise.all([api('/api/leads/'+encodeURIComponent(id)),api(`/api/leads/${encodeURIComponent(id)}/events`)]);selected=l;
+ if(navigate&&!$('workspace').classList.contains('detail-open'))listScrollY=window.scrollY;
+ renderList();const box=$('detail');const back=button('← К списку',backToList);back.id='detail-back';box.replaceChildren(back,el('span',l.status,'eyebrow'),el('h2',l.name));
  if(alerts[id])box.append(el('p',alerts[id].map(x=>reasons[x]).join(' · '),'warning'));
  const data=el('dl');for(const [title,v] of [['Telegram',l.telegram],['Ответственный',l.responsible],['Отрасль',l.industry],['Капитал',l.capital],['Запрос',l.request],['Касания',l.touch_count],['Следующий шаг',l.next_action],['Срок',date(l.next_at)],['Комментарий',l.comment],['Категория клиента',l.client_category],['Причина «Не ЦА»',l.not_target_reason],['Несоответствие категории',l.category_mismatch]])data.append(el('dt',title),el('dd',value(v)));box.append(data);
  for(const key of ['potential_amount','offer_amount','paid_amount'])if(l[key]!=null)box.append(el('p',`${names[key]}: ${l[key]}${l.unverified_amounts?.includes(key)?' — НЕ ПОДТВЕРЖДЕНО':''}`));
@@ -86,7 +94,8 @@ async function detail(id){
  if(me.role!=='producer'&&!(me.role==='lead_collector'&&l.handed_off)){
   const actions=el('div',null,'toolbar');
   if(me.role==='manager')for(const key of ['potential_amount','offer_amount'])if(l.unverified_amounts?.includes(key))actions.append(button('Проверить: '+names[key],()=>modal('Подтверждение суммы — укажите основание',[key,'comment'],{[key]:l[key]},f=>act({kind:'verify_amount',field:key,amount:f[key],comment:f.comment}))));
-  actions.append(button('Редактировать',()=>modal('Данные клиента',me.role==='lead_collector'?['name','telegram','source','comment']:['name','telegram','source','industry','capital','request','comment'],l,f=>act({kind:'edit',fields:f}),false)));
+  const edit=button('Редактировать',()=>modal('Данные клиента',me.role==='lead_collector'?['name','telegram','source','comment']:['name','telegram','source','industry','capital','request','comment'],l,f=>act({kind:'edit',fields:f}),false));
+  edit.id='detail-edit';box.querySelector('h2').after(edit);
   if(me.role!=='lead_collector'){
    actions.append(button('Взять в работу',async()=>{await act({kind:'take'});await refresh();}));
    const status=el('select');status.setAttribute('aria-label','Результат');me.statuses.forEach(s=>{const o=el('option',s);o.value=s;status.append(o);});status.value=l.status;actions.append(status,button('Зафиксировать результат',()=>modal(status.value,requirements[status.value]||[],status.value==='Оплатил'?{}:l,f=>act({kind:'result',status:status.value,fields:f})), 'btn primary'));
@@ -101,7 +110,11 @@ async function detail(id){
    actions.append(assign,button(handoff?'Передать руководителю':'Передать лид',async()=>{await act({kind:handoff?'handoff':'assign',responsible:Number(assign.value)});await refresh();}));
   }box.append(actions);
  }
- const history=el('details');history.append(el('summary','История изменений'));const events=await api(`/api/leads/${encodeURIComponent(id)}/events`);for(const e of events){const item=el('details');item.append(el('summary',`${date(e.at)} · ${value(e.actor)} · ${e.kind}`));const changes={};for(const [k,v] of Object.entries(e.new||{})){if(k==='import_raw')continue;if(JSON.stringify(v)!==JSON.stringify(e.old?.[k]))changes[k]={было:e.old?.[k]??null,стало:v};}item.append(el('pre',JSON.stringify(changes,null,2)));history.append(item);}box.append(history);
+ if(navigate){
+  $('report').hidden=true;$('workspace').classList.add('detail-open');
+  if(window.matchMedia('(max-width:900px)').matches)box.scrollIntoView({block:'start',behavior:'instant'});
+ }
+ const history=el('details');history.append(el('summary','История изменений'));for(const e of events){const item=el('details');item.append(el('summary',`${date(e.at)} · ${value(e.actor)} · ${e.kind}`));const changes={};for(const [k,v] of Object.entries(e.new||{})){if(k==='import_raw')continue;if(JSON.stringify(v)!==JSON.stringify(e.old?.[k]))changes[k]={было:e.old?.[k]??null,стало:v};}item.append(el('pre',JSON.stringify(changes,null,2)));history.append(item);}box.append(history);
  if(l.import_raw){const raw=el('details');raw.append(el('summary','Оригинал импорта и исходная история'),el('pre',JSON.stringify(l.import_raw,null,2)));box.append(raw);}
 }
 const conversionNames={lead_to_work:'Новый лид → В работе',work_to_scheduled:'В работе → Назначен созвон',completed_to_potential:'Созвон проведён → Потенциал',completed_to_not_target:'Созвон проведён → Не ЦА',completed_to_refusal:'Созвон проведён → Отказ',offer_to_paid:'Оффер → Оплатил',lead_to_call:'Новый лид → Назначен созвон'};
