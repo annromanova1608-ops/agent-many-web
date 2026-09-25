@@ -98,7 +98,10 @@ async function detail(id,navigate=true){
   edit.id='detail-edit';box.querySelector('h2').after(edit);
   if(me.role!=='lead_collector'){
    actions.append(button('Взять в работу',async()=>{await act({kind:'take'});await refresh();}));
-   const status=el('select');status.setAttribute('aria-label','Результат');me.statuses.forEach(s=>{const o=el('option',s);o.value=s;status.append(o);});status.value=l.status;actions.append(status,button('Зафиксировать результат',()=>modal(status.value,requirements[status.value]||[],status.value==='Оплатил'?{}:l,f=>act({kind:'result',status:status.value,fields:f})), 'btn primary'));
+   const status=el('select');status.setAttribute('aria-label','Результат');me.statuses.forEach(s=>{const o=el('option',s);o.value=s;status.append(o);});status.value=l.status;
+   const notice=el('p',null,'warning');notice.id='status-save-notice';notice.setAttribute('role','status');notice.hidden=true;status.setAttribute('aria-describedby',notice.id);
+   status.onchange=()=>{notice.hidden=status.value===l.status;notice.textContent=`Статус «${status.value}» не сохранён. Нажмите «Зафиксировать результат», заполните форму и нажмите «Сохранить». «Обновить» загружает данные, но не сохраняет выбор.`;};
+   actions.append(status,button('Зафиксировать результат',()=>modal(status.value,requirements[status.value]||[],status.value==='Оплатил'?{}:l,f=>act({kind:'result',status:status.value,fields:f})), 'btn primary'),notice);
    for(const [type,label] of [['message','Сообщение'],['call','Звонок'],['meeting','Встреча']])actions.append(button('+ '+label,async()=>{await act({kind:'contact',contact_type:type});await refresh();}));
    if(l.task_id)actions.append(button('Сделано',()=>doneModal(l)));
    if(alerts[id]?.includes('offer_followup'))actions.append(button('Связаться по офферу',contactModal));
